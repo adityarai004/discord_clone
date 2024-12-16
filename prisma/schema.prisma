@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String    @id @unique @default(cuid()) // Use UUID or other strategy for primary key
+  password String
+  isActive Boolean   @default(true)
+  messages Message[]
+}
+
+model Message {
+  id             String   @id @unique @default(cuid())
+  messageContent String
+  sender         User     @relation(fields: [senderId], references: [id])
+  senderId       String
+  receiverId     String
+  createdAt      DateTime @default(now())
+}
