@@ -43,9 +43,10 @@ const signUp = async (req, res) => {
 
 const login = async (req, res) => {
   try {
+    console.log("login req body ", req.body);
     const { userId, pwd } = req.body;
     if (!userId || !pwd) {
-      return res.status(400).send("User ID or Password cannot be empty");
+      return res.status(400).send({status: false, message: "User ID or Password cannot be empty"});
     }
     const user = await prisma.user.findUnique({
       where: {
@@ -64,6 +65,7 @@ const login = async (req, res) => {
     const payload = { userId: userId };
 
     if (passwordMatched) {
+      console.log("Password MAtched")
       return res.status(200).send({
         status: true,
         message: "User Authenticated",
