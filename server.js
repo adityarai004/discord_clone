@@ -6,6 +6,7 @@ import { authRouter } from "./routes/auth.route.js";
 import { userRouter } from "./routes/user.route.js";
 import { verifyUser } from "./middlewares/auth.middleware.js";
 import { prisma } from "./prisma.js";
+import { chatRouter } from "./routes/chat.route.js";
 
 const app = express();
 
@@ -13,7 +14,10 @@ const app = express();
 app.use(express.json());
 
 // Define routes
-app.use("/auth", authRouter).use("/users", verifyUser, userRouter);
+app
+  .use("/auth", authRouter)
+  .use("/users", verifyUser, userRouter)
+  .use("/chats", verifyUser, chatRouter);
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
@@ -30,27 +34,27 @@ const io = new Server(httpServer, {
 });
 
 // Middleware for token validation during handshake
-io.use((socket, next) => {
-  const token = socket.handshake.headers?.access_token; // Get the token from handshake auth
-  if (!token) {
-    return next(new Error("Authentication error: Token not provided"));
-  }
+// io.use((socket, next) => {
+//   const token = socket.handshake.headers?.access_token; // Get the token from handshake auth
+//   if (!token) {
+//     return next(new Error("Authentication error: Token not provided"));
+//   }
 
-  try {
-    const user = jwt.verify(token, process.env.JWT_SECRET); // Replace with your actual secret key
-    socket.user = user; // Attach user data to the socket instance
-    next();
-  } catch (err) {
-    console.error("Authentication error:", err.message);
-    return next(new Error("Authentication error: Invalid token"));
-  }
-});
+//   try {
+//     const user = jwt.verify(token, process.env.JWT_SECRET); // Replace with your actual secret key
+//     socket.user = user; // Attach user data to the socket instance
+//     next();
+//   } catch (err) {
+//     console.error("Authentication error:", err.message);
+//     return next(new Error("Authentication error: Invalid token"));
+//   }
+// });
 
 const obj = {};
 
 // Set up Socket.IO event handling
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id, "User ID:", socket.user.id);
+  console.log("A user connected:", socket.id, "User ID:");
 
   // Register the user's socket ID for future communication
   socket.on("create-connection", (userId) => {
@@ -59,10 +63,10 @@ io.on("connection", (socket) => {
   });
 
   // Listen for a custom event from the client
-  socket.on("send-message", async (message) => {
+  socket.on("send-message", async (message, callback) => {
     const { msg, receiverId, senderId } = message;
     // Save message to the database
-    await prisma.message.create({
+    const sentMsg = await prisma.message.create({
       data: {
         messageContent: msg,
         senderId: senderId,
@@ -70,13 +74,13 @@ io.on("connection", (socket) => {
       },
     });
 
-    console.log("Sending message:", msg, ". to", receiverId, ". from", senderId);
-
-    // Send the message to the receiver if connected
-    if (obj[receiverId]) {
+    if (sentMsg) {
+      callback(1);
+      console.log("Sending message:", msg, "to", receiverId, "from", senderId);
+      // Send the message to the receiver if connected
       socket.to(obj[receiverId]).emit("receive-message", message);
     } else {
-      console.log("Receiver not connected:", receiverId);
+      callback(0);
     }
   });
 

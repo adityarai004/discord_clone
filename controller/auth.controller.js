@@ -46,7 +46,12 @@ const login = async (req, res) => {
     console.log("login req body ", req.body);
     const { userId, pwd } = req.body;
     if (!userId || !pwd) {
-      return res.status(400).send({status: false, message: "User ID or Password cannot be empty"});
+      return res
+        .status(400)
+        .send({
+          status: false,
+          message: "User ID or Password cannot be empty",
+        });
     }
     const user = await prisma.user.findUnique({
       where: {
@@ -54,23 +59,34 @@ const login = async (req, res) => {
       },
     });
     if (!user) {
-      return res.status(404).send({
-        status: false,
-        message: "User ID not found",
+      const hash = await bcrypt.hash(pwd, 10);
+      const newUser = await prisma.user.create({
+        data: {
+          id: userId,
+          password: hash,
+        },
+      });
+
+      const payload = { userId: userId };
+
+      return res.status(201).send({
+        status: true,
+        message: "User created successfully",
+        data: { userId: newUser.id, authToken: generateToken(payload) },
       });
     }
 
     const passwordMatched = await bcrypt.compare(pwd, user.password);
 
     const payload = { userId: userId };
-
     if (passwordMatched) {
-      console.log("Password MAtched")
+      console.log("Password MAtched");
       return res.status(200).send({
         status: true,
         message: "User Authenticated",
         data: {
           authToken: generateToken(payload),
+          userId: user.id
         },
       });
     }
