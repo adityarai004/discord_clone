@@ -21,4 +21,5 @@ model Message {
   senderId       String
   receiverId     String
   createdAt      DateTime @default(now())
+  status         String   @default("sent")
 }

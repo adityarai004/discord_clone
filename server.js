@@ -1,12 +1,13 @@
 import express from "express";
 import { createServer } from "http"; // Required for integrating with Socket.IO
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken"; // Use to validate the token
 import { authRouter } from "./routes/auth.route.js";
 import { userRouter } from "./routes/user.route.js";
 import { verifyUser } from "./middlewares/auth.middleware.js";
 import { prisma } from "./prisma.js";
 import { chatRouter } from "./routes/chat.route.js";
+import { equal } from "assert";
+import { send } from "process";
 
 const app = express();
 
@@ -62,6 +63,11 @@ io.on("connection", (socket) => {
     obj[userId] = socket.id;
   });
 
+  socket.on("typing", async (payload) => {
+    const { user, typing } = payload;
+    socket.to(obj[user]).emit("typing", { typing: typing });
+  });
+
   // Listen for a custom event from the client
   socket.on("send-message", async (message, callback) => {
     const { msg, receiverId, senderId } = message;
@@ -73,15 +79,77 @@ io.on("connection", (socket) => {
         receiverId: receiverId,
       },
     });
-
+    message["timestamp"] = sentMsg.createdAt;
+    message["msgId"] = sentMsg.id;
     if (sentMsg) {
-      callback(1);
+      callback({ sent: 1, timestamp: sentMsg.createdAt, msgId: sentMsg.id });
       console.log("Sending message:", msg, "to", receiverId, "from", senderId);
       // Send the message to the receiver if connected
-      socket.to(obj[receiverId]).emit("receive-message", message);
+      if (obj[receiverId]) {
+        socket.to(obj[receiverId]).emit("receive-message", message);
+        const updated = await prisma.message.update({
+          where: {
+            id: sentMsg.id,
+          },
+          data: {
+            status: "delivered",
+          },
+        });
+        if (updated) {
+          console.log("Message updated", updated);
+        } else {
+          console.log("message didnt updated");
+        }
+        console.log("sending message status delivered to", obj[senderId]);
+        io.to(obj[senderId]).emit("message-status", {
+          id: sentMsg.id,
+          status: "delivered",
+        });
+      }
     } else {
+      console.log("Cannot deliver the message");
       callback(0);
     }
+  });
+
+  socket.on("message-seen", async (payload) => {
+    const { senderId, viewerId } = payload;
+    console.log("Message Seen Sender ID", senderId, "Viewer Id", viewerId);
+    const result = await prisma.message.updateMany({
+      where: {
+        AND: [
+          {
+            senderId: senderId,
+            receiverId: viewerId,
+            status: {not: "seen"}
+          }
+        ],
+      },
+
+      data:{
+              status: "seen",
+      }
+    });
+    console.log("Matching Messages:", result);
+
+    // const rowsUpdated = await prisma.message.updateMany({
+    //   where: {
+    //     senderId: senderId,
+    //     receiverId: receiverId,
+    //     status: { not: "seen" }, // Ensure only messages not already seen are targeted
+    //   },
+    //   data: {
+    //     status: "seen",
+    //   },
+    // });
+
+    // if (rowsUpdated) {
+    //   console.log("Rows Updated", rowsUpdated);
+    // } else {
+    //   console.log("Rows not updated");
+    // }
+
+    io.to(obj[senderId]).emit("messages-seen", {});
   });
 
   // Handle disconnection
