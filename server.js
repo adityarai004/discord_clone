@@ -8,6 +8,7 @@ import { prisma } from "./prisma.js";
 import { chatRouter } from "./routes/chat.route.js";
 import { equal } from "assert";
 import { send } from "process";
+import { groupchatRouter } from "./routes/groupchat.route.js";
 
 const app = express();
 
@@ -18,7 +19,8 @@ app.use(express.json());
 app
   .use("/auth", authRouter)
   .use("/users", verifyUser, userRouter)
-  .use("/chats", verifyUser, chatRouter);
+  .use("/chats", verifyUser, chatRouter)
+  .use("/group-chat", verifyUser, groupchatRouter);
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
@@ -121,14 +123,14 @@ io.on("connection", (socket) => {
           {
             senderId: senderId,
             receiverId: viewerId,
-            status: {not: "seen"}
-          }
+            status: { not: "seen" },
+          },
         ],
       },
 
-      data:{
-              status: "seen",
-      }
+      data: {
+        status: "seen",
+      },
     });
     console.log("Matching Messages:", result);
 

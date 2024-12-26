@@ -41,9 +41,9 @@ model Groups {
   id            String          @id @unique @default(cuid())
   name          String
   description   String
-  admin         User            @relation(fields: [adminUserId], references: [id])
+  admin         User?           @relation(fields: [adminUserId], references: [id])
   adminUserId   String
-  isActive      Boolean
+  isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   GroupMembers  GroupMembers[]
   GroupMessages GroupMessages[]
@@ -51,24 +51,24 @@ model Groups {
 }
 
 model GroupMembers {
-  group    Groups   @relation(fields: [groupId], references: [id])
+  group    Groups?  @relation(fields: [groupId], references: [id])
   groupId  String
-  member   User     @relation(fields: [memberId], references: [id])
-  memberId String   @default("member")
+  member   User?    @relation(fields: [memberId], references: [id])
+  memberId String
   joinedAt DateTime @default(now())
-  isActive Boolean
-  role     String
+  isActive Boolean  @default(true)
+  role     String   @default("member")
 
   @@id([groupId, memberId])
 }
 
 model GroupMessages {
   id          String   @id @unique @default(cuid())
-  group       Groups   @relation(fields: [groupId], references: [id])
+  group       Groups?  @relation(fields: [groupId], references: [id])
   groupId     String
   content     String
-  sender      User     @relation(fields: [senderId], references: [id])
-  senderId    String
+  sender      User?    @relation(fields: [senderId], references: [id])
+  senderId    String?
   contentType String   @default("text")
   status      String   @default("sent")
   createdAt   DateTime @default(now())
@@ -84,15 +84,15 @@ model Media {
   mimeType String
   url      String
 
-  user            User    @relation(fields: [userId], references: [id])
+  user            User?    @relation(fields: [userId], references: [id])
   userId          String
-  personalMessage Message @relation(fields: [dmMessageId], references: [id])
+  personalMessage Message? @relation(fields: [dmMessageId], references: [id])
   dmMessageId     String
 
   group          Groups?        @relation(fields: [groupId], references: [id])
-  groupId        String?
+  groupId        String
   message        GroupMessages? @relation(fields: [groupMessageId], references: [id])
-  groupMessageId String?
+  groupMessageId String
   contentType    String
   createdAt      DateTime       @default(now())
 }
