@@ -1,13 +1,11 @@
 import express from "express";
-import { createServer } from "http"; // Required for integrating with Socket.IO
+import { createServer } from "http";
 import { Server } from "socket.io";
 import { authRouter } from "./routes/auth.route.js";
 import { userRouter } from "./routes/user.route.js";
 import { verifyUser } from "./middlewares/auth.middleware.js";
 import { prisma } from "./prisma.js";
 import { chatRouter } from "./routes/chat.route.js";
-import { equal } from "assert";
-import { send } from "process";
 import { groupchatRouter } from "./routes/groupchat.route.js";
 
 const app = express();
@@ -21,6 +19,7 @@ app
   .use("/users", verifyUser, userRouter)
   .use("/chats", verifyUser, chatRouter)
   .use("/group-chat", verifyUser, groupchatRouter);
+
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
@@ -28,147 +27,161 @@ app.get("/", (req, res) => {
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Initialize Socket.IO with the HTTP server
+// Initialize Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", // Adjust this to specify allowed origins in production
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
 
-// Middleware for token validation during handshake
-// io.use((socket, next) => {
-//   const token = socket.handshake.headers?.access_token; // Get the token from handshake auth
-//   if (!token) {
-//     return next(new Error("Authentication error: Token not provided"));
-//   }
-
-//   try {
-//     const user = jwt.verify(token, process.env.JWT_SECRET); // Replace with your actual secret key
-//     socket.user = user; // Attach user data to the socket instance
-//     next();
-//   } catch (err) {
-//     console.error("Authentication error:", err.message);
-//     return next(new Error("Authentication error: Invalid token"));
-//   }
-// });
-
-const obj = {};
-
-// Set up Socket.IO event handling
+// Store active user connections
+const activeConnections = {};
+const activeRooms = {};
+// Handle Socket.IO connections
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id, "User ID:");
+  console.log("A user connected:", socket.id);
 
-  // Register the user's socket ID for future communication
+  // Create a user connection
   socket.on("create-connection", (userId) => {
-    console.log("Created a connection:", socket.id);
-    obj[userId] = socket.id;
+    console.log("Created a connection for user:", userId);
+    activeConnections[userId] = socket.id;
   });
 
-  socket.on("typing", async (payload) => {
-    const { user, typing } = payload;
-    socket.to(obj[user]).emit("typing", { typing: typing });
+  // Typing indicator
+  socket.on("typing", ({ user, typing }) => {
+    const targetSocketId = activeConnections[user];
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("typing", { typing });
+    }
   });
 
-  // Listen for a custom event from the client
+  // Send a message
   socket.on("send-message", async (message, callback) => {
-    const { msg, receiverId, senderId } = message;
-    // Save message to the database
-    const sentMsg = await prisma.message.create({
-      data: {
-        messageContent: msg,
-        senderId: senderId,
-        receiverId: receiverId,
-      },
-    });
-    message["timestamp"] = sentMsg.createdAt;
-    message["msgId"] = sentMsg.id;
-    if (sentMsg) {
-      callback({ sent: 1, timestamp: sentMsg.createdAt, msgId: sentMsg.id });
-      console.log("Sending message:", msg, "to", receiverId, "from", senderId);
-      // Send the message to the receiver if connected
-      if (obj[receiverId]) {
-        socket.to(obj[receiverId]).emit("receive-message", message);
-        const updated = await prisma.message.update({
-          where: {
-            id: sentMsg.id,
-          },
-          data: {
-            status: "delivered",
-          },
+    try {
+      const { msg, receiverId, senderId } = message;
+
+      // Save message to database
+      const savedMessage = await prisma.message.create({
+        data: {
+          messageContent: msg,
+          senderId,
+          receiverId,
+        },
+      });
+
+      const enrichedMessage = {
+        ...message,
+        timestamp: savedMessage.createdAt,
+        msgId: savedMessage.id,
+      };
+
+      callback({
+        sent: 1,
+        timestamp: savedMessage.createdAt,
+        msgId: savedMessage.id,
+      });
+      console.log("Message sent from", senderId, "to", receiverId);
+
+      // Deliver message to receiver if online
+      const receiverSocketId = activeConnections[receiverId];
+      if (receiverSocketId) {
+        socket.to(receiverSocketId).emit("receive-message", enrichedMessage);
+
+        await prisma.message.update({
+          where: { id: savedMessage.id },
+          data: { status: "delivered" },
         });
-        if (updated) {
-          console.log("Message updated", updated);
-        } else {
-          console.log("message didnt updated");
-        }
-        console.log("sending message status delivered to", obj[senderId]);
-        io.to(obj[senderId]).emit("message-status", {
-          id: sentMsg.id,
+
+        // Notify sender about delivery
+        io.to(activeConnections[senderId]).emit("message-status", {
+          id: savedMessage.id,
           status: "delivered",
         });
       }
-    } else {
-      console.log("Cannot deliver the message");
+    } catch (error) {
+      console.error("Error sending message:", error);
       callback(0);
     }
   });
 
-  socket.on("message-seen", async (payload) => {
-    const { senderId, viewerId } = payload;
-    console.log("Message Seen Sender ID", senderId, "Viewer Id", viewerId);
-    const result = await prisma.message.updateMany({
-      where: {
-        AND: [
-          {
-            senderId: senderId,
-            receiverId: viewerId,
-            status: { not: "seen" },
-          },
-        ],
-      },
+  // Mark messages as seen
+  socket.on("message-seen", async ({ senderId, viewerId }) => {
+    try {
+      console.log(
+        "Marking messages as seen for sender:",
+        senderId,
+        "by viewer:",
+        viewerId
+      );
 
-      data: {
-        status: "seen",
-      },
-    });
-    console.log("Matching Messages:", result);
+      await prisma.message.updateMany({
+        where: {
+          senderId,
+          receiverId: viewerId,
+          status: { not: "seen" },
+        },
+        data: { status: "seen" },
+      });
 
-    // const rowsUpdated = await prisma.message.updateMany({
-    //   where: {
-    //     senderId: senderId,
-    //     receiverId: receiverId,
-    //     status: { not: "seen" }, // Ensure only messages not already seen are targeted
-    //   },
-    //   data: {
-    //     status: "seen",
-    //   },
-    // });
-
-    // if (rowsUpdated) {
-    //   console.log("Rows Updated", rowsUpdated);
-    // } else {
-    //   console.log("Rows not updated");
-    // }
-
-    io.to(obj[senderId]).emit("messages-seen", {});
+      io.to(activeConnections[senderId]).emit("messages-seen", {});
+    } catch (error) {
+      console.error("Error marking messages as seen:", error);
+    }
   });
 
   // Handle disconnection
   socket.on("disconnect", () => {
     console.log("A user disconnected:", socket.id);
 
-    // Clean up user from the connection map
-    for (const [userId, socketId] of Object.entries(obj)) {
+    for (const [userId, socketId] of Object.entries(activeConnections)) {
       if (socketId === socket.id) {
-        delete obj[userId];
+        delete activeConnections[userId];
         console.log(`Removed user ${userId} from active connections.`);
         break;
       }
     }
+  });
 
-    // Notify other clients about the disconnection
-    io.emit("user-disconnected", { id: socket.id });
+  // Joining a group
+  socket.on("join-group", async (payload) => {
+    const { groupId, userId } = payload;
+    console.log(`User ${userId} joining room ${groupId}`);
+
+    socket.join(activeRooms[groupId]);
+    if (!activeRooms[groupId].includes(userId)) {
+      activeRooms[groupId].push(userId);
+    }
+    console.log(`Active Rooms:`, activeRooms);
+  });
+  // Send a group message
+  socket.on("send-group-message", async (payload, callback) => {
+    try {
+      const { content, senderId, groupId } = payload;
+
+      // Save the message in the database
+      const message = await prisma.groupMessages.create({
+        data: {
+          groupId,
+          senderId,
+          content,
+        },
+      });
+
+      if (message) {
+        // Broadcast the message to all users in the room
+        io.to(groupId).emit("receive-group-messages", message);
+
+        // Acknowledge the sender
+        callback({ sent: 1, timestamp: message.createdAt, msgId: message.id });
+      } else {
+        console.error("Failed to create group message in the database.");
+        callback({ sent: 0 });
+      }
+    } catch (error) {
+      console.error("Error in send-group-message:", error);
+      callback({ sent: 0 });
+    }
   });
 });
 

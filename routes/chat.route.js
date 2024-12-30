@@ -1,7 +1,14 @@
 import express from "express";
-import { getMessages } from "../controller/chat.controller.js";
+import {
+  getMessages,
+  getAllChats,
+  getGroupMessages,
+} from "../controller/chat.controller.js";
 const chatRouter = express.Router();
 
-chatRouter.get("/dms", getMessages);
+chatRouter
+  .get("/messages", getMessages)
+  .get("/group-messages", getGroupMessages)
+  .get("/", getAllChats);
 
 export { chatRouter };
