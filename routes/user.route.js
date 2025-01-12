@@ -1,7 +1,7 @@
 import express from "express";
-// import { getAllUsers } from "../controller/user.controller.js";
+import { getNonGroupUsers } from "../controller/user.controller.js";
 const userRouter = express.Router();
 
-// userRouter.get("/", getAllUsers);
+userRouter.get("/non-group", getNonGroupUsers);
 
 export { userRouter };

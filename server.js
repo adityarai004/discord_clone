@@ -15,10 +15,11 @@ app.use(express.json());
 
 // Define routes
 app
-  .use("/auth", authRouter)
-  .use("/users", verifyUser, userRouter)
-  .use("/chats", verifyUser, chatRouter)
-  .use("/group-chat", verifyUser, groupchatRouter);
+  .use("/auth", authRouter) // Login Aur Signup
+  .use("/users", verifyUser, userRouter) // User management, create read delete
+  .use("/chats", verifyUser, chatRouter) // chats CRUD
+  .use("/group-chat", verifyUser, groupchatRouter); // Group chat
+  
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
@@ -149,6 +150,11 @@ io.on("connection", (socket) => {
     console.log(`User ${userId} joining room ${groupId}`);
 
     socket.join(activeRooms[groupId]);
+    if (!activeRooms[groupId]) {
+      // Initialize the array if it doesn't exist
+      activeRooms[groupId] = [];
+    }
+    
     if (!activeRooms[groupId].includes(userId)) {
       activeRooms[groupId].push(userId);
     }
@@ -170,7 +176,8 @@ io.on("connection", (socket) => {
 
       if (message) {
         // Broadcast the message to all users in the room
-        io.to(groupId).emit("receive-group-messages", message);
+        console.log("Group message broadcasted:", message);
+        io.to(activeRooms[groupId]).emit("receive-group-messages", message);
 
         // Acknowledge the sender
         callback({ sent: 1, timestamp: message.createdAt, msgId: message.id });
