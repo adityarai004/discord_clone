@@ -66,24 +66,27 @@ const getAllChats = async (req, res) => {
             equals: currentUser,
           },
         },
+        AND: {
+          isActive: true
+        }
       },
       select: {
         id: true,
       },
     });
-
-    const allGroupChats = await prisma.groups.findMany({
+    
+    const allGroupChats = await prisma.groupMembers.findMany({
       where: {
-        GroupMembers: {
-          some: {
-            memberId: currentUser,
-          },
-        },
+        memberId: currentUser,
       },
       select: {
-        id: true,
-        name: true,
-      },
+        groupId: true,
+        group: {
+          select: {
+            name: true,
+          },
+        }
+      }
     });
 
     const userIds = allUsers.map((user) => user.id);
@@ -96,7 +99,9 @@ const getAllChats = async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).send(e);
+    console.log("error", error);
+    
+    return res.status(500).send(error);
   }
 };
 
@@ -113,8 +118,8 @@ const getGroupMessages = async (req, res) => {
     return res.status(200).send({
       status: true,
       message: "List fetched successfully",
-      data: messages
-    })
+      data: messages,
+    });
   } catch (error) {}
 };
 
