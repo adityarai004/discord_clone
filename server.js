@@ -160,6 +160,7 @@ io.on("connection", (socket) => {
     }
     console.log(`Active Rooms:`, activeRooms);
   });
+  
   // Send a group message
   socket.on("send-group-message", async (payload, callback) => {
     try {
