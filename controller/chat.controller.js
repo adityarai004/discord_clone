@@ -4,36 +4,34 @@ import fs from "fs";
 const getPersonalMessages = async (req, res) => {
   try {
     const receiverId = req.query.receiverId;
+    const timestamp = req.query.timestamp;
     const userId = req.user.userId;
     console.log("Sender id", userId, "receiverId", receiverId);
-    const count = await prisma.message.count({
-      where: {
-        OR: [
-          {
-            senderId: userId,
-            receiverId: receiverId,
-          },
-          {
-            senderId: receiverId,
-            receiverId: userId,
-          },
-        ],
+    console.log("Timestamp", timestamp);
+    const whereClause = {
+      OR: [
+        {
+          senderId: userId,
+          receiverId: receiverId,
+        },
+        {
+          senderId: receiverId,
+          receiverId: userId,
+        },
+      ],
+      AND: {
+        createdAt: {
+          gt: timestamp,
+        },
       },
-    });
-    const chats = await prisma.message.findMany({
-      where: {
-        OR: [
-          {
-            senderId: userId,
-            receiverId: receiverId,
-          },
-          {
-            senderId: receiverId,
-            receiverId: userId,
-          },
-        ],
-      },
+    };
 
+    const count = await prisma.message.count({
+      where: whereClause,
+    });
+
+    const chats = await prisma.message.findMany({
+      where: whereClause,
       orderBy: {
         createdAt: "asc",
       },
@@ -55,6 +53,82 @@ const getPersonalMessages = async (req, res) => {
     });
   }
 };
+
+const getPersonalMessagesInRange = async (req, res) => {
+  try {
+      const { receiverId, startTime, endTime } = req.query;
+      const userId = req.user.userId;
+
+      console.log(
+          "Fetching messages for range:",
+          "userId:", userId,
+          "receiverId:", receiverId,
+          "startTime:", startTime,
+          "endTime:", endTime
+      );
+
+      // Validate time parameters
+      if (!startTime || !endTime) {
+          return res.status(400).send({
+              success: false,
+              message: "Both startTime and endTime are required"
+          });
+      }
+
+      // Build the where clause for both count and fetch
+      const whereClause = {
+          OR: [
+              {
+                  senderId: userId,
+                  receiverId: receiverId,
+              },
+              {
+                  senderId: receiverId,
+                  receiverId: userId,
+              },
+          ],
+          AND: {
+              createdAt: {
+                  gte: startTime,
+                  lte: endTime
+              }
+          }
+      };
+
+      // Get count of messages in range
+      const count = await prisma.message.count({
+          where: whereClause
+      });
+
+      // Fetch messages in range
+      const chats = await prisma.message.findMany({
+          where: whereClause,
+          orderBy: {
+              createdAt: "asc",
+          },
+      });
+
+      return res.status(200).send({
+          success: true,
+          message: "Messages retrieved successfully",
+          messageData: {
+              total: count,
+              messages: chats,
+              timeRange: {
+                  start: startTime,
+                  end: endTime
+              }
+          },
+      });
+  } catch (e) {
+      console.error("Cannot fetch messages in range:", e);
+      return res.status(500).send({
+          success: false,
+          message: e.message || "Internal server error"
+      });
+  }
+};
+
 
 const getAllChats = async (req, res) => {
   try {
@@ -193,4 +267,5 @@ export {
   getAllChats,
   getGroupMessages,
   uploadImage,
+  getPersonalMessagesInRange
 };
